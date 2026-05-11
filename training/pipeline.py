@@ -10,6 +10,7 @@ import torch
 
 from engine.network import load_model
 from training.evaluate import evaluate
+from training.replay import build_replay_buffer, collect_selfplay_files
 from training.self_play import play_game
 from training.train import train
 
@@ -24,6 +25,7 @@ def write_examples(path: Path, examples: list[dict]) -> None:
 def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     run_dir = Path(args.work_dir) / f"iter_{iteration:04d}"
     data_path = run_dir / "selfplay.jsonl"
+    replay_path = run_dir / "replay.jsonl"
     candidate_path = run_dir / "candidate.pt"
     eval_path = run_dir / "eval.json"
     best_path = Path(args.best)
@@ -48,8 +50,20 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
         write_examples(data_path, examples)
         print(f"selfplay_game={game_index + 1}/{args.games} positions={len(examples)}")
 
+    replay_files = collect_selfplay_files(args.work_dir, args.replay_window)
+    replay_info = build_replay_buffer(
+        files=replay_files,
+        out=str(replay_path),
+        max_positions=args.max_replay_positions,
+        seed=args.seed,
+    )
+    print(
+        f"replay_positions={replay_info['positions']} "
+        f"files={len(replay_info['files'])} sampled={replay_info['sampled']}"
+    )
+
     train_args = argparse.Namespace(
-        data=str(data_path),
+        data=str(replay_path),
         out=str(candidate_path),
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -98,6 +112,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
         "run_dir": str(run_dir),
         "data": str(data_path),
+        "replay": replay_info,
         "candidate": str(candidate_path),
         "best": str(best_path),
         "promoted": promoted,
@@ -131,6 +146,8 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--resume-from-best", action="store_true")
+    parser.add_argument("--replay-window", type=int, default=5)
+    parser.add_argument("--max-replay-positions", type=int, default=0)
     args = parser.parse_args()
 
     summaries = []

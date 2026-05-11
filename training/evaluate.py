@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 from pathlib import Path
 
@@ -20,7 +21,7 @@ def play_match_game(
     candidate_is_white: bool,
     simulations: int,
     max_plies: int,
-) -> float:
+) -> dict:
     board = chess.Board()
 
     while not board.is_game_over(claim_draw=True) and board.ply() < max_plies:
@@ -31,10 +32,18 @@ def play_match_game(
 
     result = board.result(claim_draw=True)
     if result == "1-0":
-        return 1.0 if candidate_is_white else 0.0
-    if result == "0-1":
-        return 0.0 if candidate_is_white else 1.0
-    return 0.5
+        score = 1.0 if candidate_is_white else 0.0
+    elif result == "0-1":
+        score = 0.0 if candidate_is_white else 1.0
+    else:
+        score = 0.5
+
+    return {
+        "score": score,
+        "result": result,
+        "candidate_color": "white" if candidate_is_white else "black",
+        "plies": board.ply(),
+    }
 
 
 def evaluate(
@@ -52,10 +61,10 @@ def evaluate(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     candidate = load_model(candidate_path, device)
     baseline = load_model(baseline_path, device) if baseline_path else None
-    scores = []
+    game_results = []
     for game_index in range(games):
         candidate_is_white = game_index % 2 == 0
-        score = play_match_game(
+        result = play_match_game(
             candidate,
             baseline,
             device,
@@ -63,21 +72,40 @@ def evaluate(
             simulations,
             max_plies,
         )
-        scores.append(score)
+        game_results.append(result)
         print(
             f"eval_game={game_index + 1}/{games} "
-            f"candidate_white={candidate_is_white} score={score}"
+            f"candidate_color={result['candidate_color']} "
+            f"score={result['score']} result={result['result']} plies={result['plies']}"
         )
 
-    total = sum(scores)
+    total = sum(item["score"] for item in game_results)
+    wins = sum(1 for item in game_results if item["score"] == 1.0)
+    draws = sum(1 for item in game_results if item["score"] == 0.5)
+    losses = sum(1 for item in game_results if item["score"] == 0.0)
+    white_scores = [item["score"] for item in game_results if item["candidate_color"] == "white"]
+    black_scores = [item["score"] for item in game_results if item["candidate_color"] == "black"]
+    win_rate = total / max(games, 1)
     return {
         "candidate": candidate_path,
         "baseline": baseline_path,
         "games": games,
         "score": total,
-        "win_rate": total / max(games, 1),
+        "win_rate": win_rate,
+        "elo_diff": elo_from_score(win_rate),
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "white_score": sum(white_scores) / max(len(white_scores), 1),
+        "black_score": sum(black_scores) / max(len(black_scores), 1),
+        "results": game_results,
         "simulations": simulations,
     }
+
+
+def elo_from_score(score: float) -> float:
+    clipped = min(max(score, 0.01), 0.99)
+    return -400.0 * math.log10(1.0 / clipped - 1.0)
 
 
 def main() -> None:

@@ -25,6 +25,7 @@ training/
   self_play.py    # MCTS self-play 데이터 생성
   train.py        # PyTorch 학습
   evaluate.py     # 후보 모델 vs 기존 best 평가전
+  replay.py       # 최근 self-play 데이터 섞기
   pipeline.py     # self-play -> train -> eval -> promote 자동 루프
   hardware.py     # 현재 런타임 확인
 
@@ -103,6 +104,8 @@ L4 추천 시작값:
   --eval-simulations 64 \
   --epochs 3 \
   --batch-size 128 \
+  --replay-window 5 \
+  --max-replay-positions 50000 \
   --amp \
   --resume-from-best
 ```
@@ -122,6 +125,8 @@ A100 이상에서 더 크게:
   --batch-size 256 \
   --channels 96 \
   --blocks 6 \
+  --replay-window 8 \
+  --max-replay-positions 200000 \
   --amp \
   --resume-from-best
 ```
@@ -138,6 +143,8 @@ A100 이상에서 더 크게:
 --batch-size        한 번에 학습하는 포지션 수
 --channels          네트워크 너비
 --blocks            residual block 수
+--replay-window     최근 몇 iteration 데이터를 섞을지
+--max-replay-positions replay buffer 최대 포지션 수
 --amp               GPU mixed precision 사용
 ```
 
@@ -145,6 +152,28 @@ A100 이상에서 더 크게:
 
 ```powershell
 python -m training.pipeline --iterations 1 --games 2 --simulations 8 --eval-games 2 --eval-simulations 4 --epochs 1 --batch-size 16
+```
+
+평가 결과는 각 iteration 폴더의 `eval.json`과 `summary.json`에 저장됩니다.
+
+```text
+runs/
+  iter_0001/
+    selfplay.jsonl
+    replay.jsonl
+    candidate.pt
+    eval.json
+    summary.json
+  pipeline_summary.json
+```
+
+`eval.json`에는 다음 값들이 들어갑니다.
+
+```text
+win_rate   후보 모델 점수율
+elo_diff   기존 best 대비 Elo 추정치
+wins/draws/losses
+white_score/black_score
 ```
 
 ## GitHub에 올리기
