@@ -64,6 +64,7 @@ def play_game(
     device: torch.device | None = None,
     max_plies: int = 160,
     simulations: int = 64,
+    mcts_batch_size: int = 8,
     temperature: float = 1.0,
     adjudicate_material: bool = True,
     adjudicate_threshold: float = 1.0,
@@ -83,6 +84,7 @@ def play_game(
             simulations=simulations,
             temperature=temperature,
             exploration_noise=True,
+            mcts_batch_size=mcts_batch_size,
         )
         example = {"fen": board.fen(), "policy": result.policy}
         if store_visits:
@@ -113,6 +115,7 @@ def main() -> None:
     parser.add_argument("--out", default="data/selfplay.jsonl")
     parser.add_argument("--model", default=None)
     parser.add_argument("--simulations", type=int, default=64)
+    parser.add_argument("--mcts-batch-size", type=int, default=8)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--no-material-adjudication", action="store_true")
@@ -132,6 +135,7 @@ def main() -> None:
                 device=device,
                 max_plies=args.max_plies,
                 simulations=args.simulations,
+                mcts_batch_size=args.mcts_batch_size,
                 temperature=args.temperature,
                 adjudicate_material=not args.no_material_adjudication,
                 adjudicate_threshold=args.adjudicate_threshold,

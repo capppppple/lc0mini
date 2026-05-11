@@ -20,6 +20,7 @@ def play_match_game(
     device: torch.device,
     candidate_is_white: bool,
     simulations: int,
+    mcts_batch_size: int,
     max_plies: int,
 ) -> dict:
     board = chess.Board()
@@ -27,7 +28,13 @@ def play_match_game(
     while not board.is_game_over(claim_draw=True) and board.ply() < max_plies:
         use_candidate = board.turn == chess.WHITE if candidate_is_white else board.turn == chess.BLACK
         model = candidate if use_candidate else baseline
-        move = choose_move(board, model=model, device=device, simulations=simulations)
+        move = choose_move(
+            board,
+            model=model,
+            device=device,
+            simulations=simulations,
+            mcts_batch_size=mcts_batch_size,
+        )
         board.push(move)
 
     result = board.result(claim_draw=True)
@@ -51,6 +58,7 @@ def evaluate(
     baseline_path: str | None,
     games: int,
     simulations: int,
+    mcts_batch_size: int,
     max_plies: int,
     seed: int | None,
 ) -> dict:
@@ -70,6 +78,7 @@ def evaluate(
             device,
             candidate_is_white,
             simulations,
+            mcts_batch_size,
             max_plies,
         )
         game_results.append(result)
@@ -100,6 +109,7 @@ def evaluate(
         "black_score": sum(black_scores) / max(len(black_scores), 1),
         "results": game_results,
         "simulations": simulations,
+        "mcts_batch_size": mcts_batch_size,
     }
 
 
@@ -114,6 +124,7 @@ def main() -> None:
     parser.add_argument("--baseline", default=None)
     parser.add_argument("--games", type=int, default=8)
     parser.add_argument("--simulations", type=int, default=32)
+    parser.add_argument("--mcts-batch-size", type=int, default=8)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--out", default=None)
@@ -124,6 +135,7 @@ def main() -> None:
         baseline_path=args.baseline,
         games=args.games,
         simulations=args.simulations,
+        mcts_batch_size=args.mcts_batch_size,
         max_plies=args.max_plies,
         seed=args.seed,
     )

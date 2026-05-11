@@ -54,7 +54,7 @@ quit
 학습된 모델을 쓸 때:
 
 ```powershell
-python -m engine.uci --model checkpoints\best.pt --simulations 128
+python -m engine.uci --model checkpoints\best.pt --simulations 128 --mcts-batch-size 16
 ```
 
 ## Colab GPU/TPU 추천
@@ -122,8 +122,10 @@ A100 이상에서 더 크게:
 --preset            debug / fast / balanced / strong 기본값 묶음
 --games             iteration마다 self-play 게임 수
 --simulations       self-play 한 수당 MCTS 탐색 횟수
+--mcts-batch-size   MCTS 중 neural inference를 몇 개씩 묶을지
 --eval-games        후보 모델 평가전 판수
 --eval-simulations  평가전 한 수당 MCTS 탐색 횟수
+--eval-mcts-batch-size 평가전 MCTS batch size
 --eval-interval     몇 iteration마다 평가전을 할지
 --epochs            생성된 데이터를 반복 학습하는 횟수
 --batch-size        한 번에 학습하는 포지션 수
@@ -145,6 +147,15 @@ debug     코드 테스트용
 fast      초반 추천. 훨씬 빠르게 반복
 balanced  품질/속도 균형
 strong    A100 이상에서 긴 학습용
+```
+
+GPU에서는 `mcts-batch-size`가 클수록 모델 호출을 묶어서 처리합니다. 너무 크게 잡으면 MCTS 선택이 덜 촘촘해질 수 있으니 보통 이렇게 씁니다.
+
+```text
+T4/L4: 8~16
+A100: 16~32
+H100: 32~64
+CPU: 1~4
 ```
 
 초기에는 게임이 체크메이트로 잘 끝나지 않기 때문에 `max-plies`에 자주 걸립니다. 기본값은 이때 기물 점수로 결과를 부드럽게 판정합니다.

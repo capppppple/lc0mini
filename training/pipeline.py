@@ -63,6 +63,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             device=device,
             max_plies=args.max_plies,
             simulations=args.simulations,
+            mcts_batch_size=args.mcts_batch_size,
             temperature=args.temperature,
             adjudicate_material=not args.no_material_adjudication,
             adjudicate_threshold=args.adjudicate_threshold,
@@ -116,6 +117,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             baseline_path=baseline_path,
             games=args.eval_games,
             simulations=args.eval_simulations,
+            mcts_batch_size=args.eval_mcts_batch_size,
             max_plies=args.max_plies,
             seed=args.seed,
         )
@@ -127,6 +129,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             "score": 0.0,
             "win_rate": 0.0,
             "simulations": args.eval_simulations,
+            "mcts_batch_size": args.eval_mcts_batch_size,
             "skipped": True,
             "reason": f"eval_interval={args.eval_interval}",
         }
@@ -138,6 +141,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             "score": 1.0,
             "win_rate": 1.0,
             "simulations": args.eval_simulations,
+            "mcts_batch_size": args.eval_mcts_batch_size,
         }
 
     eval_path.write_text(json.dumps(eval_result, indent=2), encoding="utf-8")
@@ -191,8 +195,10 @@ def main() -> None:
     parser.add_argument("--best", default="checkpoints/best.pt")
     parser.add_argument("--games", type=int, default=20)
     parser.add_argument("--simulations", type=int, default=64)
+    parser.add_argument("--mcts-batch-size", type=int, default=8)
     parser.add_argument("--eval-games", type=int, default=8)
     parser.add_argument("--eval-simulations", type=int, default=32)
+    parser.add_argument("--eval-mcts-batch-size", type=int, default=8)
     parser.add_argument("--eval-interval", type=int, default=1)
     parser.add_argument("--promote-threshold", type=float, default=0.55)
     parser.add_argument("--max-plies", type=int, default=160)
@@ -235,8 +241,10 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "debug": {
             "games": 2,
             "simulations": 4,
+            "mcts_batch_size": 4,
             "eval_games": 2,
             "eval_simulations": 4,
+            "eval_mcts_batch_size": 4,
             "max_plies": 48,
             "epochs": 1,
             "batch_size": 32,
@@ -248,8 +256,10 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "fast": {
             "games": 40,
             "simulations": 16,
+            "mcts_batch_size": 8,
             "eval_games": 4,
             "eval_simulations": 16,
+            "eval_mcts_batch_size": 8,
             "eval_interval": 2,
             "max_plies": 96,
             "epochs": 2,
@@ -262,8 +272,10 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "balanced": {
             "games": 100,
             "simulations": 64,
+            "mcts_batch_size": 16,
             "eval_games": 12,
             "eval_simulations": 64,
+            "eval_mcts_batch_size": 16,
             "max_plies": 160,
             "epochs": 3,
             "batch_size": 128,
@@ -275,8 +287,10 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "strong": {
             "games": 300,
             "simulations": 128,
+            "mcts_batch_size": 32,
             "eval_games": 24,
             "eval_simulations": 128,
+            "eval_mcts_batch_size": 32,
             "max_plies": 200,
             "epochs": 5,
             "batch_size": 256,

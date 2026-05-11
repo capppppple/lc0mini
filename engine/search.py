@@ -7,7 +7,7 @@ import random
 import chess
 import torch
 
-from engine.encoding import POLICY_SIZE, board_to_tensor, index_to_move, move_to_index
+from engine.encoding import board_to_tensor, index_to_move, move_to_index
 from engine.network import MiniChessNet
 
 
@@ -16,6 +16,7 @@ class MCTSNode:
     prior: float
     visits: int = 0
     value_sum: float = 0.0
+    pending: int = 0
     children: dict[chess.Move, "MCTSNode"] = field(default_factory=dict)
 
     @property
@@ -30,6 +31,14 @@ class MCTSResult:
     visits: dict[str, int]
 
 
+@dataclass
+class SearchLeaf:
+    path: list[MCTSNode]
+    board: chess.Board
+    node: MCTSNode
+    terminal_value: float | None = None
+
+
 def choose_move(
     board: chess.Board,
     model: MiniChessNet | None = None,
@@ -37,6 +46,7 @@ def choose_move(
     temperature: float = 0.0,
     simulations: int = 0,
     exploration_noise: bool = False,
+    mcts_batch_size: int = 1,
 ) -> chess.Move:
     if simulations > 0:
         return mcts_search(
@@ -46,6 +56,7 @@ def choose_move(
             simulations,
             temperature,
             exploration_noise=exploration_noise,
+            mcts_batch_size=mcts_batch_size,
         ).move
 
     legal_moves = list(board.legal_moves)
@@ -86,14 +97,18 @@ def mcts_search(
     exploration_noise: bool = False,
     dirichlet_alpha: float = 0.3,
     dirichlet_frac: float = 0.25,
+    mcts_batch_size: int = 1,
 ) -> MCTSResult:
     root = MCTSNode(prior=1.0)
     expand(root, board, model, device)
     if exploration_noise:
         add_root_noise(root, dirichlet_alpha, dirichlet_frac)
 
-    for _ in range(max(simulations, 1)):
-        simulate(root, board, model, device, cpuct)
+    if model is not None and mcts_batch_size > 1:
+        run_batched_simulations(root, board, model, device, simulations, cpuct, mcts_batch_size)
+    else:
+        for _ in range(max(simulations, 1)):
+            simulate(root, board, model, device, cpuct)
 
     if not root.children:
         raise ValueError("No legal moves available")
@@ -152,8 +167,111 @@ def expand(
         return terminal_value(board)
 
     priors, value = evaluate(board, legal_moves, model, device)
-    node.children = {move: MCTSNode(prior=priors[move]) for move in legal_moves}
+    expand_with_priors(node, legal_moves, priors)
     return value
+
+
+def expand_with_priors(
+    node: MCTSNode,
+    legal_moves: list[chess.Move],
+    priors: dict[chess.Move, float],
+) -> None:
+    node.children = {move: MCTSNode(prior=priors[move]) for move in legal_moves}
+
+
+def run_batched_simulations(
+    root: MCTSNode,
+    board: chess.Board,
+    model: MiniChessNet,
+    device: torch.device | str,
+    simulations: int,
+    cpuct: float,
+    mcts_batch_size: int,
+) -> None:
+    remaining = max(simulations, 1)
+    while remaining > 0:
+        batch_size = min(max(mcts_batch_size, 1), remaining)
+        leaves = [select_leaf(root, board, cpuct) for _ in range(batch_size)]
+        pending = [leaf for leaf in leaves if leaf.terminal_value is None]
+
+        evaluations = []
+        if pending:
+            boards = [leaf.board for leaf in pending]
+            legal_moves_batch = [list(leaf.board.legal_moves) for leaf in pending]
+            evaluations = evaluate_batch(boards, legal_moves_batch, model, device)
+
+        eval_index = 0
+        for leaf in leaves:
+            if leaf.terminal_value is None:
+                legal_moves, priors, value = evaluations[eval_index]
+                eval_index += 1
+                expand_with_priors(leaf.node, legal_moves, priors)
+            else:
+                value = leaf.terminal_value
+            backpropagate(leaf.path, value)
+        remaining -= batch_size
+
+
+def select_leaf(root: MCTSNode, root_board: chess.Board, cpuct: float) -> SearchLeaf:
+    board = root_board.copy(stack=False)
+    node = root
+    path = [node]
+
+    while True:
+        if board.is_game_over(claim_draw=True):
+            reserve_path(path)
+            return SearchLeaf(path=path, board=board, node=node, terminal_value=terminal_value(board))
+
+        if not node.children:
+            reserve_path(path)
+            return SearchLeaf(path=path, board=board, node=node)
+
+        move, child = select_child(node, cpuct)
+        board.push(move)
+        node = child
+        path.append(node)
+
+
+def reserve_path(path: list[MCTSNode]) -> None:
+    for node in path:
+        node.pending += 1
+
+
+def backpropagate(path: list[MCTSNode], value: float) -> None:
+    for node in reversed(path):
+        node.pending = max(node.pending - 1, 0)
+        node.visits += 1
+        node.value_sum += value
+        value = -value
+
+
+def evaluate_batch(
+    boards: list[chess.Board],
+    legal_moves_batch: list[list[chess.Move]],
+    model: MiniChessNet | None,
+    device: torch.device | str,
+) -> list[tuple[list[chess.Move], dict[chess.Move, float], float]]:
+    if model is None:
+        results = []
+        for legal_moves in legal_moves_batch:
+            prior = 1.0 / len(legal_moves)
+            results.append((legal_moves, {move: prior for move in legal_moves}, 0.0))
+        return results
+
+    with torch.no_grad():
+        x = torch.stack([board_to_tensor(board) for board in boards]).to(device)
+        policy_logits, values = model(x)
+        policy_logits = policy_logits.detach().cpu()
+        values = values.detach().cpu()
+
+    results = []
+    for row, legal_moves in enumerate(legal_moves_batch):
+        legal_indices = [move_to_index(move) for move in legal_moves]
+        legal_logits = policy_logits[row, legal_indices].float()
+        probs = torch.softmax(legal_logits, dim=0).tolist()
+        priors = {move: float(prob) for move, prob in zip(legal_moves, probs)}
+        results.append((legal_moves, priors, float(values[row].item())))
+    return results
 
 
 def evaluate(
@@ -166,15 +284,8 @@ def evaluate(
         prior = 1.0 / len(legal_moves)
         return {move: prior for move in legal_moves}, 0.0
 
-    with torch.no_grad():
-        x = board_to_tensor(board).unsqueeze(0).to(device)
-        policy_logits, value = model(x)
-        logits = policy_logits[0].detach().cpu()
-
-    legal_indices = [move_to_index(move) for move in legal_moves]
-    legal_logits = torch.tensor([float(logits[index]) for index in legal_indices], dtype=torch.float32)
-    probs = torch.softmax(legal_logits, dim=0).tolist()
-    return {move: float(prob) for move, prob in zip(legal_moves, probs)}, float(value.item())
+    _, priors, value = evaluate_batch([board], [legal_moves], model, device)[0]
+    return priors, value
 
 
 def select_child(node: MCTSNode, cpuct: float) -> tuple[chess.Move, MCTSNode]:
@@ -182,7 +293,7 @@ def select_child(node: MCTSNode, cpuct: float) -> tuple[chess.Move, MCTSNode]:
 
     def score(child: MCTSNode) -> float:
         exploration = cpuct * child.prior * math.sqrt(parent_visits) / (1 + child.visits)
-        return -child.value + exploration
+        return -child.value + exploration - child.pending
 
     return max(node.children.items(), key=lambda item: score(item[1]))
 
