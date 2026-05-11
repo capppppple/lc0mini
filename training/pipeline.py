@@ -127,6 +127,8 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             mcts_batch_size=args.eval_mcts_batch_size,
             max_plies=args.max_plies,
             seed=args.seed,
+            material_tiebreak_weight=args.promotion_material_weight,
+            material_tiebreak_scale=args.promotion_material_scale,
         )
     elif baseline_path:
         eval_result = {
@@ -152,13 +154,14 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
         }
 
     eval_path.write_text(json.dumps(eval_result, indent=2), encoding="utf-8")
-    promoted = (not eval_result.get("skipped", False)) and eval_result["win_rate"] >= args.promote_threshold
+    promotion_rate = eval_result.get("promotion_rate", eval_result["win_rate"])
+    promoted = (not eval_result.get("skipped", False)) and promotion_rate >= args.promote_threshold
     if promoted:
         best_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(candidate_path, best_path)
-        print(f"promoted=true best={best_path}")
+        print(f"promoted=true best={best_path} promotion_rate={promotion_rate:.3f}")
     else:
-        print(f"promoted=false threshold={args.promote_threshold}")
+        print(f"promoted=false threshold={args.promote_threshold} promotion_rate={promotion_rate:.3f}")
 
     summary = {
         "iteration": iteration,
@@ -223,6 +226,8 @@ def main() -> None:
     parser.add_argument("--eval-mcts-batch-size", type=int, default=8)
     parser.add_argument("--eval-interval", type=int, default=1)
     parser.add_argument("--promote-threshold", type=float, default=0.55)
+    parser.add_argument("--promotion-material-weight", type=float, default=0.02)
+    parser.add_argument("--promotion-material-scale", type=float, default=8.0)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--temperature-drop-ply", type=int, default=30)
@@ -333,7 +338,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "temperature_drop_ply": 24,
             "temperature_final": 0.15,
             "self_play_workers": 2,
-            "epochs": 2,
+            "epochs": 10,
             "batch_size": 128,
             "channels": 32,
             "blocks": 2,
