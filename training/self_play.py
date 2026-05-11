@@ -7,19 +7,22 @@ from pathlib import Path
 import chess
 import torch
 
+from engine.network import MiniChessNet
 from engine.network import load_model
 from engine.search import mcts_search
 
 
 def play_game(
     model_path: str | None = None,
+    model: MiniChessNet | None = None,
+    device: torch.device | None = None,
     max_plies: int = 160,
     simulations: int = 64,
     temperature: float = 1.0,
 ) -> list[dict]:
     board = chess.Board()
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = load_model(model_path, device) if model_path else None
+    device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model or (load_model(model_path, device) if model_path else None)
     examples: list[dict] = []
 
     while not board.is_game_over(claim_draw=True) and len(examples) < max_plies:
@@ -56,15 +59,19 @@ def main() -> None:
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = load_model(args.model, device) if args.model else None
     with out_path.open("a", encoding="utf-8") as file:
-        for _ in range(args.games):
+        for game_index in range(args.games):
             for example in play_game(
-                args.model,
+                model=model,
+                device=device,
                 max_plies=args.max_plies,
                 simulations=args.simulations,
                 temperature=args.temperature,
             ):
                 file.write(json.dumps(example) + "\n")
+            print(f"game={game_index + 1}/{args.games} written={out_path}")
 
 
 if __name__ == "__main__":

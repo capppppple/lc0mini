@@ -25,6 +25,8 @@ class ResidualBlock(nn.Module):
 class MiniChessNet(nn.Module):
     def __init__(self, channels: int = 64, blocks: int = 4) -> None:
         super().__init__()
+        self.channels = channels
+        self.blocks = blocks
         self.stem = nn.Sequential(
             nn.Conv2d(NUM_PLANES, channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(channels),
@@ -53,8 +55,12 @@ class MiniChessNet(nn.Module):
 
 
 def load_model(path: str, device: torch.device | str = "cpu") -> MiniChessNet:
-    model = MiniChessNet()
     checkpoint = torch.load(path, map_location=device)
+    arch = checkpoint.get("arch", {}) if isinstance(checkpoint, dict) else {}
+    model = MiniChessNet(
+        channels=int(arch.get("channels", 64)),
+        blocks=int(arch.get("blocks", 4)),
+    )
     state_dict = checkpoint.get("model", checkpoint)
     try:
         model.load_state_dict(state_dict)
