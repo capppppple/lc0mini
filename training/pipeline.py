@@ -192,6 +192,8 @@ def main() -> None:
     )
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--work-dir", default="runs")
+    parser.add_argument("--start-iteration", type=int, default=None)
+    parser.add_argument("--restart", action="store_true")
     parser.add_argument("--best", default="checkpoints/best.pt")
     parser.add_argument("--games", type=int, default=20)
     parser.add_argument("--simulations", type=int, default=64)
@@ -223,14 +225,54 @@ def main() -> None:
     args = parser.parse_args()
     apply_preset(args, sys.argv[1:])
 
-    summaries = []
-    for iteration in range(1, args.iterations + 1):
+    start_iteration = resolve_start_iteration(args.work_dir, args.start_iteration, args.restart)
+    end_iteration = start_iteration + args.iterations - 1
+    print(f"iteration_range={start_iteration}..{end_iteration}")
+
+    summaries = load_pipeline_summary(args.work_dir)
+    for iteration in range(start_iteration, end_iteration + 1):
         summaries.append(run_iteration(args, iteration))
 
     summary_path = Path(args.work_dir) / "pipeline_summary.json"
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"pipeline_summary={summary_path}")
+
+
+def resolve_start_iteration(
+    work_dir: str,
+    explicit_start: int | None,
+    restart: bool,
+) -> int:
+    if explicit_start is not None:
+        return max(explicit_start, 1)
+    if restart:
+        return 1
+    return find_next_iteration(work_dir)
+
+
+def find_next_iteration(work_dir: str) -> int:
+    root = Path(work_dir)
+    highest = 0
+    for path in root.glob("iter_*"):
+        if not path.is_dir():
+            continue
+        try:
+            number = int(path.name.split("_", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        highest = max(highest, number)
+    return highest + 1
+
+
+def load_pipeline_summary(work_dir: str) -> list:
+    summary_path = Path(work_dir) / "pipeline_summary.json"
+    if not summary_path.exists():
+        return []
+    try:
+        return json.loads(summary_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
 
 
 def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:

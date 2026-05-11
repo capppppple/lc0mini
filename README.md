@@ -1,8 +1,8 @@
 # lc0mini
 
-Lc0/AlphaZero 스타일 구조를 작게 따라가보는 미니 체스 엔진 프로젝트입니다.
+Lc0/AlphaZero 스타일을 작게 따라가보는 미니 체스 엔진 프로젝트입니다.
 
-목표는 처음부터 강한 엔진을 만드는 것이 아니라, 아래 흐름을 직접 돌릴 수 있게 만드는 것입니다.
+목표는 아래 흐름을 직접 돌릴 수 있게 만드는 것입니다.
 
 ```text
 self-play 데이터 생성
@@ -28,59 +28,33 @@ training/
   replay.py       # 최근 self-play 데이터 섞기
   pipeline.py     # self-play -> train -> eval -> promote 자동 루프
   hardware.py     # 현재 런타임 확인
-
-notebooks/
-  colab_train.ipynb
 ```
 
-## 로컬 실행
+## Colab 저장 구조
 
-```powershell
-pip install -r requirements.txt
-python -m training.hardware
-python -m engine.uci --simulations 64
-```
-
-UCI 테스트 입력:
+Colab 런타임의 `/content`는 꺼지면 사라집니다. 그래서 진행상황은 Google Drive에 저장합니다.
 
 ```text
-uci
-isready
-position startpos
-go nodes 64
-quit
+/content/drive/MyDrive/lc0mini/checkpoints/best.pt
+/content/drive/MyDrive/lc0mini/runs/
+/content/drive/MyDrive/lc0mini/runs/pipeline_summary.json
 ```
 
-학습된 모델을 쓸 때:
+`training.pipeline`은 기본적으로 기존 `runs/iter_XXXX`를 보고 다음 번호부터 이어서 실행합니다. 예를 들어 Drive에 `iter_0008`까지 있으면 다음 실행은 자동으로 `iter_0009`부터 시작합니다.
+
+새로 1번부터 시작하고 싶을 때만:
 
 ```powershell
-python -m engine.uci --model checkpoints\best.pt --simulations 128 --mcts-batch-size 16
+python -m training.pipeline --restart ...
 ```
 
-## Colab GPU/TPU 추천
+특정 번호부터 시작하고 싶으면:
 
-현재 코드는 PyTorch + CUDA 중심입니다. 그래서 지금은 **GPU 추천, TPU 비추천**입니다.
-
-```text
-CPU        디버그만 가능. 학습용 비추천.
-T4 GPU     무료/저렴한 빠른 테스트용.
-L4 GPU     추천 기본값. 속도/가용성/비용 균형이 좋음.
-A100 GPU   진지한 학습 추천. batch와 모델을 키우기 좋음.
-G4 GPU     강력하지만 현재 작은 모델에는 과함. 큰 실험용.
-H100 GPU   가장 빠르지만 현재 코드 규모에는 과함. 큰 모델/배치 MCTS용.
-v5e-1 TPU  지금은 비추천. torch_xla/JAX 포팅 전에는 장점이 작음.
-v6e-1 TPU  매우 강하지만 지금은 비추천. TPU용 코드로 바꾼 뒤 고려.
-```
-
-Colab에서 먼저 확인:
-
-```python
-!python -m training.hardware
+```powershell
+python -m training.pipeline --start-iteration 25 ...
 ```
 
 ## Colab 자동 학습
-
-Colab에서 repo를 가져옵니다.
 
 ```python
 from google.colab import drive
@@ -89,6 +63,7 @@ drive.mount('/content/drive')
 !git clone https://github.com/capppppple/lc0mini.git
 %cd lc0mini
 !pip install -r requirements.txt
+!python -m training.hardware
 ```
 
 L4 추천 시작값:
@@ -118,7 +93,7 @@ A100 이상에서 더 크게:
 ## 학습량 조절
 
 ```text
---iterations        self-play/train/eval 반복 횟수
+--iterations        이번 실행에서 추가로 돌릴 iteration 수
 --preset            debug / fast / balanced / strong 기본값 묶음
 --games             iteration마다 self-play 게임 수
 --simulations       self-play 한 수당 MCTS 탐색 횟수
@@ -133,10 +108,8 @@ A100 이상에서 더 크게:
 --blocks            residual block 수
 --replay-window     최근 몇 iteration 데이터를 섞을지
 --max-replay-positions replay buffer 최대 포지션 수
---store-visits      디버그용 방문 횟수 저장. 느리고 파일 커짐
 --max-plies         한 게임 최대 ply 수
---adjudicate-threshold max-plies 도달 시 material 판정 최소 차이
---adjudicate-scale  material 차이를 value로 압축하는 강도
+--store-visits      디버그용 방문 횟수 저장. 느리고 파일이 커짐
 --amp               GPU mixed precision 사용
 ```
 
@@ -149,7 +122,7 @@ balanced  품질/속도 균형
 strong    A100 이상에서 긴 학습용
 ```
 
-GPU에서는 `mcts-batch-size`가 클수록 모델 호출을 묶어서 처리합니다. 너무 크게 잡으면 MCTS 선택이 덜 촘촘해질 수 있으니 보통 이렇게 씁니다.
+MCTS batch size 추천:
 
 ```text
 T4/L4: 8~16
@@ -158,27 +131,7 @@ H100: 32~64
 CPU: 1~4
 ```
 
-초기에는 게임이 체크메이트로 잘 끝나지 않기 때문에 `max-plies`에 자주 걸립니다. 기본값은 이때 기물 점수로 결과를 부드럽게 판정합니다.
-
-```text
-termination=max_plies_material  기물 차이로 value target 생성
-termination=max_plies_draw      기물 차이가 작아서 draw 처리
-termination=game_over           실제 체크메이트/무승부 결과 사용
-```
-
-이 기능을 끄고 싶으면:
-
-```powershell
-python -m training.pipeline --no-material-adjudication ...
-```
-
-빠른 테스트:
-
-```powershell
-python -m training.pipeline --preset debug --iterations 1
-```
-
-평가 결과는 각 iteration 폴더의 `eval.json`과 `summary.json`에 저장됩니다.
+## 결과 확인
 
 ```text
 runs/
@@ -191,29 +144,33 @@ runs/
   pipeline_summary.json
 ```
 
-`eval.json`에는 다음 값들이 들어갑니다.
+`eval.json`에서 볼 값:
 
 ```text
-win_rate   후보 모델 점수율
-elo_diff   기존 best 대비 Elo 추정치
-wins/draws/losses
-white_score/black_score
+win_rate
+elo_diff
+wins / draws / losses
+white_score / black_score
 ```
 
-## GitHub에 올리기
+## 로컬 GUI 실행
 
-이 PC에서 `git` 명령이 바로 안 잡히면 전체 경로로 실행하면 됩니다.
+Colab에서 만든 `best.pt`를 로컬의 `checkpoints/best.pt`로 가져온 뒤 실행합니다.
 
 ```powershell
-& "C:\Program Files\Git\cmd\git.exe" status
-& "C:\Program Files\Git\cmd\git.exe" add .
-& "C:\Program Files\Git\cmd\git.exe" commit -m "Update lc0mini"
-& "C:\Program Files\Git\cmd\git.exe" push
+cd "C:\Users\shine\OneDrive\문서\New project 2\lc0mini"
+python -m engine.uci --model checkpoints\best.pt --simulations 128 --mcts-batch-size 16
 ```
 
-## 다음 개발 목표
+GUI 설정 예:
 
-1. MCTS neural inference batching
-2. 더 빠른 self-play worker 병렬화
-3. Elo 추정 리포트
-4. TPU/JAX 버전 실험
+```text
+Executable:
+C:\Python314\python.exe
+
+Working directory:
+C:\Users\shine\OneDrive\문서\New project 2\lc0mini
+
+Arguments:
+-m engine.uci --model checkpoints\best.pt --simulations 128 --mcts-batch-size 16
+```
