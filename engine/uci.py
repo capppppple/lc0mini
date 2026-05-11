@@ -13,6 +13,7 @@ from engine.search import choose_move
 def main() -> None:
     parser = argparse.ArgumentParser(description="lc0mini UCI engine")
     parser.add_argument("--model", default=None, help="Path to a .pt checkpoint")
+    parser.add_argument("--simulations", type=int, default=64, help="MCTS simulations per move")
     args = parser.parse_args()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,6 +29,7 @@ def main() -> None:
         if command == "uci":
             print("id name lc0mini")
             print("id author capppppple")
+            print(f"option name Simulations type spin default {args.simulations} min 1 max 10000")
             print("uciok")
         elif command == "isready":
             print("readyok")
@@ -36,7 +38,8 @@ def main() -> None:
         elif command.startswith("position"):
             board = parse_position(command)
         elif command.startswith("go"):
-            move = choose_move(board, model=model, device=device)
+            simulations = parse_simulations(command, args.simulations)
+            move = choose_move(board, model=model, device=device, simulations=simulations)
             print(f"bestmove {move.uci()}")
         elif command == "quit":
             break
@@ -63,6 +66,18 @@ def parse_position(command: str) -> chess.Board:
     return board
 
 
+def parse_simulations(command: str, default: int) -> int:
+    parts = command.split()
+    if "nodes" in parts:
+        index = parts.index("nodes") + 1
+        if index < len(parts):
+            return max(int(parts[index]), 1)
+    if "movetime" in parts:
+        index = parts.index("movetime") + 1
+        if index < len(parts):
+            return max(min(int(parts[index]) // 20, 1000), 1)
+    return default
+
+
 if __name__ == "__main__":
     main()
-

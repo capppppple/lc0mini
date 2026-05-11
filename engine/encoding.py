@@ -14,13 +14,14 @@ PIECE_PLANES = {
 }
 
 NUM_PLANES = 18
-POLICY_SIZE = 64 * 64 + 5
-PROMOTION_OFFSET = 64 * 64
+SQUARE_POLICY_SIZE = 64 * 64
+POLICY_SIZE = SQUARE_POLICY_SIZE * 5
+PROMOTION_OFFSET = SQUARE_POLICY_SIZE
 PROMOTION_TO_INDEX = {
-    chess.KNIGHT: 0,
-    chess.BISHOP: 1,
-    chess.ROOK: 2,
-    chess.QUEEN: 3,
+    chess.KNIGHT: 1,
+    chess.BISHOP: 2,
+    chess.ROOK: 3,
+    chess.QUEEN: 4,
 }
 INDEX_TO_PROMOTION = {value: key for key, value in PROMOTION_TO_INDEX.items()}
 
@@ -48,23 +49,24 @@ def board_to_tensor(board: chess.Board) -> torch.Tensor:
 def move_to_index(move: chess.Move) -> int:
     base = move.from_square * 64 + move.to_square
     if move.promotion:
-        return PROMOTION_OFFSET + PROMOTION_TO_INDEX.get(move.promotion, 4)
+        return PROMOTION_TO_INDEX.get(move.promotion, 4) * SQUARE_POLICY_SIZE + base
     return base
 
 
 def index_to_move(index: int, board: chess.Board) -> chess.Move | None:
-    if index >= PROMOTION_OFFSET:
+    if index >= POLICY_SIZE:
         return None
 
-    from_square = index // 64
-    to_square = index % 64
+    promotion_plane = index // SQUARE_POLICY_SIZE
+    square_index = index % SQUARE_POLICY_SIZE
+    from_square = square_index // 64
+    to_square = square_index % 64
+    promotion = INDEX_TO_PROMOTION.get(promotion_plane)
+    if promotion:
+        move = chess.Move(from_square, to_square, promotion=promotion)
+        return move if move in board.legal_moves else None
+
     move = chess.Move(from_square, to_square)
     if move in board.legal_moves:
         return move
-
-    for promotion in (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT):
-        promo_move = chess.Move(from_square, to_square, promotion=promotion)
-        if promo_move in board.legal_moves:
-            return promo_move
     return None
-

@@ -6,7 +6,7 @@ Lc0 스타일 구조를 작게 따라가보는 미니 체스 엔진 프로젝트
 
 ```text
 self-play 데이터 생성
--> policy/value network 학습
+-> MCTS 방문 횟수 policy + value 학습
 -> 체크포인트 저장
 -> UCI 엔진으로 bestmove 출력
 ```
@@ -17,11 +17,11 @@ self-play 데이터 생성
 engine/
   encoding.py     # chess.Board -> PyTorch tensor
   network.py      # 작은 policy/value network
-  search.py       # 현재는 policy 기반 수 선택
+  search.py       # neural-guided MCTS
   uci.py          # 체스 GUI와 연결할 UCI 루프
 
 training/
-  self_play.py    # self-play jsonl 데이터 생성
+  self_play.py    # MCTS self-play jsonl 데이터 생성
   train.py        # PyTorch 학습 스크립트
 
 notebooks/
@@ -39,7 +39,7 @@ pip install -r requirements.txt
 self-play 데이터 생성:
 
 ```powershell
-python -m training.self_play --games 5 --out data/selfplay.jsonl
+python -m training.self_play --games 5 --simulations 32 --out data/selfplay.jsonl
 ```
 
 학습:
@@ -48,17 +48,25 @@ python -m training.self_play --games 5 --out data/selfplay.jsonl
 python -m training.train --data data/selfplay.jsonl --out checkpoints/latest.pt
 ```
 
+이어서 학습:
+
+```powershell
+python -m training.train --data data/selfplay.jsonl --out checkpoints/latest.pt --resume checkpoints/latest.pt
+```
+
 UCI 엔진 실행:
 
 ```powershell
-python -m engine.uci --model checkpoints/latest.pt
+python -m engine.uci --model checkpoints/latest.pt --simulations 64
 ```
 
-모델 없이 실행하면 랜덤에 가까운 수를 둡니다.
+모델 없이 실행하면 균등 prior 기반 MCTS로 둡니다.
 
 ```powershell
-python -m engine.uci
+python -m engine.uci --simulations 64
 ```
+
+UCI에서 `go nodes 200`을 보내면 그 수를 MCTS simulation 수로 사용합니다.
 
 ## GitHub에 올리기
 
@@ -79,7 +87,7 @@ Colab에서는 repo를 clone하고 GPU로 학습합니다.
 !git clone https://github.com/capppppple/lc0mini.git
 %cd lc0mini
 !pip install -r requirements.txt
-!python -m training.self_play --games 20 --out data/selfplay.jsonl
+!python -m training.self_play --games 20 --simulations 64 --out data/selfplay.jsonl
 !python -m training.train --data data/selfplay.jsonl --out checkpoints/latest.pt
 ```
 
@@ -87,7 +95,41 @@ Colab에서는 repo를 clone하고 GPU로 학습합니다.
 
 ## 다음 개발 목표
 
-1. policy 기반 선택을 진짜 MCTS로 교체
-2. self-play 결과를 더 좋은 학습 타깃으로 저장
-3. 체크포인트 이어서 학습하기
+## 학습량 조절
+
+가장 중요한 옵션은 네 가지입니다.
+
+```text
+--games        self-play 게임 수
+--simulations  한 수마다 MCTS를 몇 번 돌릴지
+--epochs       같은 데이터를 몇 번 반복 학습할지
+--batch-size   한 번에 몇 포지션씩 학습할지
+```
+
+빠른 테스트:
+
+```powershell
+python -m training.self_play --games 2 --simulations 8 --out data/test.jsonl
+python -m training.train --data data/test.jsonl --out checkpoints/test.pt --epochs 1 --batch-size 16
+```
+
+Colab에서 가볍게:
+
+```powershell
+python -m training.self_play --games 100 --simulations 64 --out data/selfplay.jsonl
+python -m training.train --data data/selfplay.jsonl --out checkpoints/latest.pt --epochs 3 --batch-size 64
+```
+
+Colab에서 더 빡세게:
+
+```powershell
+python -m training.self_play --games 1000 --simulations 128 --out data/selfplay.jsonl
+python -m training.train --data data/selfplay.jsonl --out checkpoints/latest.pt --epochs 8 --batch-size 128
+```
+
+## 다음 개발 목표
+
+1. 체크포인트 평가전 자동화
+2. 이전 모델보다 강할 때만 best checkpoint 승격
+3. 반복 self-play/train 루프 추가
 4. Cute Chess나 BanksiaGUI에서 UCI 엔진 테스트

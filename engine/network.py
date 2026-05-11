@@ -56,8 +56,13 @@ def load_model(path: str, device: torch.device | str = "cpu") -> MiniChessNet:
     model = MiniChessNet()
     checkpoint = torch.load(path, map_location=device)
     state_dict = checkpoint.get("model", checkpoint)
-    model.load_state_dict(state_dict)
+    try:
+        model.load_state_dict(state_dict)
+    except RuntimeError as exc:
+        raise RuntimeError(
+            "Checkpoint is not compatible with this code version. "
+            "Regenerate self-play data and train a fresh v2 checkpoint."
+        ) from exc
     model.to(device)
     model.eval()
     return model
-
