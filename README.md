@@ -98,6 +98,7 @@ A100 이상에서 더 크게:
 --games             iteration마다 self-play 게임 수
 --simulations       self-play 한 수당 MCTS 탐색 횟수
 --mcts-batch-size   MCTS 중 neural inference를 몇 개씩 묶을지
+--self-play-workers self-play 게임 생성 프로세스 수
 --eval-games        후보 모델 평가전 판수
 --eval-simulations  평가전 한 수당 MCTS 탐색 횟수
 --eval-mcts-batch-size 평가전 MCTS batch size
@@ -109,6 +110,9 @@ A100 이상에서 더 크게:
 --replay-window     최근 몇 iteration 데이터를 섞을지
 --max-replay-positions replay buffer 최대 포지션 수
 --max-plies         한 게임 최대 ply 수
+--temperature       초반 self-play 샘플링 온도
+--temperature-drop-ply 온도가 내려가는 ply
+--temperature-final 중후반 self-play 샘플링 온도
 --store-visits      디버그용 방문 횟수 저장. 느리고 파일이 커짐
 --amp               GPU mixed precision 사용
 ```
@@ -130,6 +134,15 @@ A100: 16~32
 H100: 32~64
 CPU: 1~4
 ```
+
+Temperature schedule:
+
+```text
+초반: temperature가 높아서 다양한 수를 탐색
+중후반: temperature-final로 내려가서 더 결정적으로 둠
+```
+
+GPU 모델 self-play에서는 여러 프로세스가 같은 GPU에 모델을 따로 올리면 느려지거나 메모리가 터질 수 있습니다. 그래서 CUDA 모델을 쓸 때는 `self-play-workers`가 자동으로 1로 내려갑니다. 모델 없는 초기 self-play나 CPU self-play에서는 병렬 workers가 작동합니다.
 
 ## 결과 확인
 

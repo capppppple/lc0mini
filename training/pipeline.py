@@ -12,7 +12,7 @@ import torch
 from engine.network import load_model
 from training.evaluate import evaluate
 from training.replay import build_replay_buffer, collect_selfplay_files
-from training.self_play import play_game
+from training.self_play import generate_games
 from training.train import train
 
 
@@ -57,19 +57,26 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     model_path = baseline_path if baseline_path else None
     model = load_model(model_path, device) if model_path else None
     game_summaries = []
-    for game_index in range(args.games):
-        examples = play_game(
-            model=model,
-            device=device,
-            max_plies=args.max_plies,
-            simulations=args.simulations,
-            mcts_batch_size=args.mcts_batch_size,
-            temperature=args.temperature,
-            adjudicate_material=not args.no_material_adjudication,
-            adjudicate_threshold=args.adjudicate_threshold,
-            adjudicate_scale=args.adjudicate_scale,
-            store_visits=args.store_visits,
-        )
+    workers = effective_self_play_workers(args.self_play_workers, model_path, device)
+    print(f"self_play_workers={workers}")
+    for game_index, examples in generate_games(
+        games=args.games,
+        model_path=model_path,
+        model=model,
+        device=device,
+        workers=workers,
+        max_plies=args.max_plies,
+        simulations=args.simulations,
+        mcts_batch_size=args.mcts_batch_size,
+        temperature=args.temperature,
+        temperature_drop_ply=args.temperature_drop_ply,
+        temperature_final=args.temperature_final,
+        adjudicate_material=not args.no_material_adjudication,
+        adjudicate_threshold=args.adjudicate_threshold,
+        adjudicate_scale=args.adjudicate_scale,
+        store_visits=args.store_visits,
+        seed=None if args.seed is None else args.seed + iteration * 100000,
+    ):
         write_examples(data_path, examples)
         game_summary = summarize_examples(examples)
         game_summaries.append(game_summary)
@@ -174,6 +181,19 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     return summary
 
 
+def effective_self_play_workers(
+    requested_workers: int,
+    model_path: str | None,
+    device: torch.device,
+) -> int:
+    if requested_workers <= 1:
+        return 1
+    if model_path and device.type == "cuda":
+        print("parallel_cpu_selfplay_disabled_for_cuda_model=true")
+        return 1
+    return requested_workers
+
+
 def count_terminations(game_summaries: list[dict]) -> dict:
     counts: dict[str, int] = {}
     for item in game_summaries:
@@ -205,6 +225,9 @@ def main() -> None:
     parser.add_argument("--promote-threshold", type=float, default=0.55)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--temperature-drop-ply", type=int, default=30)
+    parser.add_argument("--temperature-final", type=float, default=0.15)
+    parser.add_argument("--self-play-workers", type=int, default=1)
     parser.add_argument("--no-material-adjudication", action="store_true")
     parser.add_argument("--adjudicate-threshold", type=float, default=1.0)
     parser.add_argument("--adjudicate-scale", type=float, default=8.0)
@@ -288,6 +311,9 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "eval_simulations": 4,
             "eval_mcts_batch_size": 4,
             "max_plies": 48,
+            "temperature_drop_ply": 12,
+            "temperature_final": 0.2,
+            "self_play_workers": 2,
             "epochs": 1,
             "batch_size": 32,
             "channels": 16,
@@ -304,6 +330,9 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "eval_mcts_batch_size": 8,
             "eval_interval": 2,
             "max_plies": 96,
+            "temperature_drop_ply": 24,
+            "temperature_final": 0.15,
+            "self_play_workers": 2,
             "epochs": 2,
             "batch_size": 128,
             "channels": 32,
@@ -319,6 +348,9 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "eval_simulations": 64,
             "eval_mcts_batch_size": 16,
             "max_plies": 160,
+            "temperature_drop_ply": 30,
+            "temperature_final": 0.1,
+            "self_play_workers": 2,
             "epochs": 3,
             "batch_size": 128,
             "channels": 64,
@@ -334,6 +366,9 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "eval_simulations": 128,
             "eval_mcts_batch_size": 32,
             "max_plies": 200,
+            "temperature_drop_ply": 40,
+            "temperature_final": 0.05,
+            "self_play_workers": 2,
             "epochs": 5,
             "batch_size": 256,
             "channels": 96,
