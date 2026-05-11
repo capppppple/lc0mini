@@ -50,8 +50,9 @@ def play_match_game(
     else:
         score = 0.5
 
+    is_draw = score == 0.5
     material_bonus = 0.0
-    if result == "*" and material_tiebreak_weight > 0:
+    if is_draw and material_tiebreak_weight > 0:
         material_bonus = material_tiebreak_weight * math.tanh(
             candidate_material / max(material_tiebreak_scale, 0.001)
         )
@@ -63,6 +64,7 @@ def play_match_game(
         "material_bonus": material_bonus,
         "material_score": material,
         "candidate_material_score": candidate_material,
+        "material_tiebreak_applied": is_draw and material_tiebreak_weight > 0,
         "result": result,
         "candidate_color": "white" if candidate_is_white else "black",
         "plies": board.ply(),

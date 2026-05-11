@@ -103,7 +103,7 @@ A100 이상에서 더 크게:
 --eval-simulations  평가전 한 수당 MCTS 탐색 횟수
 --eval-mcts-batch-size 평가전 MCTS batch size
 --eval-interval     몇 iteration마다 평가전을 할지
---promotion-material-weight max-plies 평가전 기물 보정 가중치
+--promotion-material-weight 무승부 평가전 기물 보정 가중치
 --promotion-material-scale 기물 보정 압축 강도
 --epochs            생성된 데이터를 반복 학습하는 횟수
 --batch-size        한 번에 학습하는 포지션 수
@@ -170,7 +170,7 @@ wins / draws / losses
 white_score / black_score
 ```
 
-Promotion은 기본적으로 승/무/패 기준입니다. 다만 max-plies로 끝난 평가전에는 아주 약한 material tiebreak를 씁니다. 기본값은 `--promotion-material-weight 0.02`라서 승패보다 훨씬 약한 무승부 보정입니다.
+Promotion은 기본적으로 승/무/패 기준입니다. 다만 무승부로 끝난 평가전에는 아주 약한 material tiebreak를 씁니다. `result="*"`인 max-plies 무승부뿐 아니라 `1/2-1/2` 룰상 무승부에도 적용됩니다. 기본값은 `--promotion-material-weight 0.02`라서 승패보다 훨씬 약한 무승부 보정입니다.
 
 완전히 끄고 싶으면:
 
