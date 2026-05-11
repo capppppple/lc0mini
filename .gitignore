@@ -209,6 +209,12 @@ tempCodeRunnerFile.py
 # PyPI configuration file
 .pypirc
 
+# lc0mini generated files
+checkpoints/
+data/
+*.pt
+*.pth
+
 # Marimo
 marimo/_static/
 marimo/_lsp/
