@@ -145,7 +145,24 @@ A100 이상에서 더 크게:
 --blocks            residual block 수
 --replay-window     최근 몇 iteration 데이터를 섞을지
 --max-replay-positions replay buffer 최대 포지션 수
+--max-plies         한 게임 최대 ply 수
+--adjudicate-threshold max-plies 도달 시 material 판정 최소 차이
+--adjudicate-scale  material 차이를 value로 압축하는 강도
 --amp               GPU mixed precision 사용
+```
+
+초기에는 게임이 체크메이트로 잘 끝나지 않기 때문에 `max-plies`에 자주 걸립니다. 기본값은 이때 기물 점수로 결과를 부드럽게 판정합니다.
+
+```text
+termination=max_plies_material  기물 차이로 value target 생성
+termination=max_plies_draw      기물 차이가 작아서 draw 처리
+termination=game_over           실제 체크메이트/무승부 결과 사용
+```
+
+이 기능을 끄고 싶으면:
+
+```powershell
+python -m training.pipeline --no-material-adjudication ...
 ```
 
 빠른 테스트:

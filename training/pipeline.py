@@ -22,6 +22,22 @@ def write_examples(path: Path, examples: list[dict]) -> None:
             file.write(json.dumps(example) + "\n")
 
 
+def summarize_examples(examples: list[dict]) -> dict:
+    if not examples:
+        return {"positions": 0}
+
+    game_meta = examples[-1].get("game", {})
+    values = [float(item.get("value", 0.0)) for item in examples]
+    return {
+        "positions": len(examples),
+        "termination": game_meta.get("termination", "unknown"),
+        "result": game_meta.get("result", "unknown"),
+        "material_score": game_meta.get("material_score"),
+        "adjudicated_value": game_meta.get("adjudicated_value"),
+        "avg_abs_value": sum(abs(value) for value in values) / len(values),
+    }
+
+
 def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     run_dir = Path(args.work_dir) / f"iter_{iteration:04d}"
     data_path = run_dir / "selfplay.jsonl"
@@ -39,6 +55,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_path = baseline_path if baseline_path else None
     model = load_model(model_path, device) if model_path else None
+    game_summaries = []
     for game_index in range(args.games):
         examples = play_game(
             model=model,
@@ -46,9 +63,20 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             max_plies=args.max_plies,
             simulations=args.simulations,
             temperature=args.temperature,
+            adjudicate_material=not args.no_material_adjudication,
+            adjudicate_threshold=args.adjudicate_threshold,
+            adjudicate_scale=args.adjudicate_scale,
         )
         write_examples(data_path, examples)
-        print(f"selfplay_game={game_index + 1}/{args.games} positions={len(examples)}")
+        game_summary = summarize_examples(examples)
+        game_summaries.append(game_summary)
+        print(
+            f"selfplay_game={game_index + 1}/{args.games} "
+            f"positions={game_summary['positions']} "
+            f"termination={game_summary['termination']} "
+            f"material={game_summary.get('material_score')} "
+            f"value={game_summary.get('adjudicated_value')}"
+        )
 
     replay_files = collect_selfplay_files(args.work_dir, args.replay_window)
     replay_info = build_replay_buffer(
@@ -112,6 +140,11 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
         "timestamp": datetime.now(UTC).isoformat(timespec="seconds"),
         "run_dir": str(run_dir),
         "data": str(data_path),
+        "selfplay": {
+            "games": args.games,
+            "summaries": game_summaries,
+            "terminations": count_terminations(game_summaries),
+        },
         "replay": replay_info,
         "candidate": str(candidate_path),
         "best": str(best_path),
@@ -121,6 +154,14 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     summary_path = run_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary
+
+
+def count_terminations(game_summaries: list[dict]) -> dict:
+    counts: dict[str, int] = {}
+    for item in game_summaries:
+        key = str(item.get("termination", "unknown"))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
 
 
 def main() -> None:
@@ -135,6 +176,9 @@ def main() -> None:
     parser.add_argument("--promote-threshold", type=float, default=0.55)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--no-material-adjudication", action="store_true")
+    parser.add_argument("--adjudicate-threshold", type=float, default=1.0)
+    parser.add_argument("--adjudicate-scale", type=float, default=8.0)
     parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=1e-3)
