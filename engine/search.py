@@ -102,8 +102,16 @@ def mcts_search(
     counts = [root.children[move].visits for move in moves]
     move = select_from_counts(moves, counts, temperature)
     total = sum(counts) or 1
-    policy = {move_to_index(child_move): root.children[child_move].visits / total for child_move in moves}
-    visits = {child_move.uci(): root.children[child_move].visits for child_move in moves}
+    policy = {
+        move_to_index(child_move): root.children[child_move].visits / total
+        for child_move in moves
+        if root.children[child_move].visits > 0
+    }
+    visits = {
+        child_move.uci(): root.children[child_move].visits
+        for child_move in moves
+        if root.children[child_move].visits > 0
+    }
     return MCTSResult(move=move, policy=policy, visits=visits)
 
 

@@ -97,15 +97,8 @@ L4 추천 시작값:
 !python -m training.pipeline \
   --work-dir /content/drive/MyDrive/lc0mini/runs \
   --best /content/drive/MyDrive/lc0mini/checkpoints/best.pt \
-  --iterations 5 \
-  --games 100 \
-  --simulations 64 \
-  --eval-games 12 \
-  --eval-simulations 64 \
-  --epochs 3 \
-  --batch-size 128 \
-  --replay-window 5 \
-  --max-replay-positions 50000 \
+  --preset fast \
+  --iterations 8 \
   --amp \
   --resume-from-best
 ```
@@ -116,17 +109,8 @@ A100 이상에서 더 크게:
 !python -m training.pipeline \
   --work-dir /content/drive/MyDrive/lc0mini/runs \
   --best /content/drive/MyDrive/lc0mini/checkpoints/best.pt \
+  --preset strong \
   --iterations 10 \
-  --games 300 \
-  --simulations 128 \
-  --eval-games 24 \
-  --eval-simulations 128 \
-  --epochs 5 \
-  --batch-size 256 \
-  --channels 96 \
-  --blocks 6 \
-  --replay-window 8 \
-  --max-replay-positions 200000 \
   --amp \
   --resume-from-best
 ```
@@ -135,20 +119,32 @@ A100 이상에서 더 크게:
 
 ```text
 --iterations        self-play/train/eval 반복 횟수
+--preset            debug / fast / balanced / strong 기본값 묶음
 --games             iteration마다 self-play 게임 수
 --simulations       self-play 한 수당 MCTS 탐색 횟수
 --eval-games        후보 모델 평가전 판수
 --eval-simulations  평가전 한 수당 MCTS 탐색 횟수
+--eval-interval     몇 iteration마다 평가전을 할지
 --epochs            생성된 데이터를 반복 학습하는 횟수
 --batch-size        한 번에 학습하는 포지션 수
 --channels          네트워크 너비
 --blocks            residual block 수
 --replay-window     최근 몇 iteration 데이터를 섞을지
 --max-replay-positions replay buffer 최대 포지션 수
+--store-visits      디버그용 방문 횟수 저장. 느리고 파일 커짐
 --max-plies         한 게임 최대 ply 수
 --adjudicate-threshold max-plies 도달 시 material 판정 최소 차이
 --adjudicate-scale  material 차이를 value로 압축하는 강도
 --amp               GPU mixed precision 사용
+```
+
+프리셋 감각:
+
+```text
+debug     코드 테스트용
+fast      초반 추천. 훨씬 빠르게 반복
+balanced  품질/속도 균형
+strong    A100 이상에서 긴 학습용
 ```
 
 초기에는 게임이 체크메이트로 잘 끝나지 않기 때문에 `max-plies`에 자주 걸립니다. 기본값은 이때 기물 점수로 결과를 부드럽게 판정합니다.
@@ -168,7 +164,7 @@ python -m training.pipeline --no-material-adjudication ...
 빠른 테스트:
 
 ```powershell
-python -m training.pipeline --iterations 1 --games 2 --simulations 8 --eval-games 2 --eval-simulations 4 --epochs 1 --batch-size 16
+python -m training.pipeline --preset debug --iterations 1
 ```
 
 평가 결과는 각 iteration 폴더의 `eval.json`과 `summary.json`에 저장됩니다.

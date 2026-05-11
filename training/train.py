@@ -36,6 +36,9 @@ class JsonlChessDataset(Dataset):
                 policy[int(move_index)] = float(prob)
         else:
             policy[int(row["move"])] = 1.0
+        policy_sum = float(policy.sum().item())
+        if policy_sum > 0:
+            policy /= policy_sum
         value = torch.tensor(row["value"], dtype=torch.float32)
         return x, policy, value
 

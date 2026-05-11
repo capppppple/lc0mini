@@ -68,6 +68,7 @@ def play_game(
     adjudicate_material: bool = True,
     adjudicate_threshold: float = 1.0,
     adjudicate_scale: float = 8.0,
+    store_visits: bool = False,
 ) -> list[dict]:
     board = chess.Board()
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -83,7 +84,10 @@ def play_game(
             temperature=temperature,
             exploration_noise=True,
         )
-        examples.append({"fen": board.fen(), "policy": result.policy, "visits": result.visits})
+        example = {"fen": board.fen(), "policy": result.policy}
+        if store_visits:
+            example["visits"] = result.visits
+        examples.append(example)
         move = result.move
         board.push(move)
 
@@ -114,6 +118,7 @@ def main() -> None:
     parser.add_argument("--no-material-adjudication", action="store_true")
     parser.add_argument("--adjudicate-threshold", type=float, default=1.0)
     parser.add_argument("--adjudicate-scale", type=float, default=8.0)
+    parser.add_argument("--store-visits", action="store_true")
     args = parser.parse_args()
 
     out_path = Path(args.out)
@@ -131,6 +136,7 @@ def main() -> None:
                 adjudicate_material=not args.no_material_adjudication,
                 adjudicate_threshold=args.adjudicate_threshold,
                 adjudicate_scale=args.adjudicate_scale,
+                store_visits=args.store_visits,
             ):
                 file.write(json.dumps(example) + "\n")
             print(f"game={game_index + 1}/{args.games} written={out_path}")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -66,6 +67,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             adjudicate_material=not args.no_material_adjudication,
             adjudicate_threshold=args.adjudicate_threshold,
             adjudicate_scale=args.adjudicate_scale,
+            store_visits=args.store_visits,
         )
         write_examples(data_path, examples)
         game_summary = summarize_examples(examples)
@@ -107,7 +109,8 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
     )
     train(train_args)
 
-    if baseline_path:
+    should_evaluate = baseline_path and (iteration % args.eval_interval == 0)
+    if should_evaluate:
         eval_result = evaluate(
             candidate_path=str(candidate_path),
             baseline_path=baseline_path,
@@ -116,6 +119,17 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
             max_plies=args.max_plies,
             seed=args.seed,
         )
+    elif baseline_path:
+        eval_result = {
+            "candidate": str(candidate_path),
+            "baseline": baseline_path,
+            "games": 0,
+            "score": 0.0,
+            "win_rate": 0.0,
+            "simulations": args.eval_simulations,
+            "skipped": True,
+            "reason": f"eval_interval={args.eval_interval}",
+        }
     else:
         eval_result = {
             "candidate": str(candidate_path),
@@ -127,7 +141,7 @@ def run_iteration(args: argparse.Namespace, iteration: int) -> dict:
         }
 
     eval_path.write_text(json.dumps(eval_result, indent=2), encoding="utf-8")
-    promoted = eval_result["win_rate"] >= args.promote_threshold
+    promoted = (not eval_result.get("skipped", False)) and eval_result["win_rate"] >= args.promote_threshold
     if promoted:
         best_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(candidate_path, best_path)
@@ -166,6 +180,12 @@ def count_terminations(game_summaries: list[dict]) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--preset",
+        choices=["debug", "fast", "balanced", "strong"],
+        default=None,
+        help="Apply a speed/quality preset. Explicit CLI args still win.",
+    )
     parser.add_argument("--iterations", type=int, default=3)
     parser.add_argument("--work-dir", default="runs")
     parser.add_argument("--best", default="checkpoints/best.pt")
@@ -173,6 +193,7 @@ def main() -> None:
     parser.add_argument("--simulations", type=int, default=64)
     parser.add_argument("--eval-games", type=int, default=8)
     parser.add_argument("--eval-simulations", type=int, default=32)
+    parser.add_argument("--eval-interval", type=int, default=1)
     parser.add_argument("--promote-threshold", type=float, default=0.55)
     parser.add_argument("--max-plies", type=int, default=160)
     parser.add_argument("--temperature", type=float, default=1.0)
@@ -192,7 +213,9 @@ def main() -> None:
     parser.add_argument("--resume-from-best", action="store_true")
     parser.add_argument("--replay-window", type=int, default=5)
     parser.add_argument("--max-replay-positions", type=int, default=0)
+    parser.add_argument("--store-visits", action="store_true")
     args = parser.parse_args()
+    apply_preset(args, sys.argv[1:])
 
     summaries = []
     for iteration in range(1, args.iterations + 1):
@@ -202,6 +225,75 @@ def main() -> None:
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     summary_path.write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"pipeline_summary={summary_path}")
+
+
+def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
+    if args.preset is None:
+        return
+
+    presets = {
+        "debug": {
+            "games": 2,
+            "simulations": 4,
+            "eval_games": 2,
+            "eval_simulations": 4,
+            "max_plies": 48,
+            "epochs": 1,
+            "batch_size": 32,
+            "channels": 16,
+            "blocks": 1,
+            "replay_window": 2,
+            "max_replay_positions": 2000,
+        },
+        "fast": {
+            "games": 40,
+            "simulations": 16,
+            "eval_games": 4,
+            "eval_simulations": 16,
+            "eval_interval": 2,
+            "max_plies": 96,
+            "epochs": 2,
+            "batch_size": 128,
+            "channels": 32,
+            "blocks": 2,
+            "replay_window": 4,
+            "max_replay_positions": 30000,
+        },
+        "balanced": {
+            "games": 100,
+            "simulations": 64,
+            "eval_games": 12,
+            "eval_simulations": 64,
+            "max_plies": 160,
+            "epochs": 3,
+            "batch_size": 128,
+            "channels": 64,
+            "blocks": 4,
+            "replay_window": 5,
+            "max_replay_positions": 50000,
+        },
+        "strong": {
+            "games": 300,
+            "simulations": 128,
+            "eval_games": 24,
+            "eval_simulations": 128,
+            "max_plies": 200,
+            "epochs": 5,
+            "batch_size": 256,
+            "channels": 96,
+            "blocks": 6,
+            "replay_window": 8,
+            "max_replay_positions": 200000,
+        },
+    }
+    provided = {
+        arg.split("=", 1)[0].replace("-", "_").lstrip("_")
+        for arg in argv
+        if arg.startswith("--")
+    }
+    for key, value in presets[args.preset].items():
+        if key not in provided:
+            setattr(args, key, value)
 
 
 if __name__ == "__main__":
